@@ -5,12 +5,12 @@ require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const morgan = require("morgan");
 const port = process.env.PORT || 3000;
-const jwt = require("jsonwebtoken");
-const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken"); //jwt1
+const cookieParser = require("cookie-parser"); //jwt1
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173"], //jwt 2
     credentials: true,
   })
 );
@@ -30,6 +30,30 @@ const client = new MongoClient(uri, {
   },
 });
 
+// middle wares
+const logger = async (req, res, next) => {
+  console.log("called: ", req.host, req.originalUrl);
+  next();
+};
+
+const verrifyToken = async (req, res, next) => {
+  const token = req.cookies?.token;
+  console.log("value of the token is :", token);
+  if (!token) {
+    return res.status(401).send({ message: "not authorized" });
+  }
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    // error
+    if (err) {
+      console.log("err", err);
+      return res.status(401).send({ message: "unauthorized" });
+    }
+    console.log("value in the token", decoded);
+    req.user = decoded;
+    next();
+  });
+};
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -37,23 +61,23 @@ async function run() {
     const carCollection = client.db("carDoctorDB").collection("services");
     const bookingCollection = client.db("carDoctorDB").collection("bookings");
 
-    app.get("/services", async (req, res) => {
+    app.get("/services", logger, async (req, res) => {
       const cursor = carCollection.find();
       const result = await cursor.toArray();
       res.send(result); // can find on the server now
     });
 
-    app.post("/bookings", async (req, res) => {
+    app.post("/bookings", logger, async (req, res) => {
       const booking = req.body;
       console.log(booking);
       const result = await bookingCollection.insertOne(booking);
       res.send(result);
     });
 
-    app.post("/jwt", async (req, res) => {
+    app.post("/jwt", logger, async (req, res) => {
       const user = req.body;
       console.log(user);
-      // create token
+      // create token // jwt 4
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "2h",
       });
@@ -65,9 +89,13 @@ async function run() {
       res.send({ success: true });
     });
 
-    app.get("/bookings", async (req, res) => {
-      console.log("tookeeen: ", req.cookies.token);
+    app.get("/bookings", logger, verrifyToken, async (req, res) => {
+      // console.log("tookeeen: ", req.cookies.token);
       console.log(req.query.email);
+      //ater token varification
+      if (req.user.email != req.query.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
       let query = {};
       if (req.query?.email) {
         query = { email: req.query.email };
